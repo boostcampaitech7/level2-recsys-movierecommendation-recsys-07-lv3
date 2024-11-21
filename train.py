@@ -6,28 +6,33 @@ import argparse
 import numpy as np
 import pandas as pd
 import torch
+import torch.optim as optim
 import tqdm
 from omegaconf import OmegaConf
 
 from scipy.sparse import csr_matrix
 from src.train.trainer import train, evaluate_MultiVAE
-from src.train.loss import loss_function_vae
-from src.models.MultiVAE import MultiVAE
-from src.models.EASE import EASE
+import src.train.loss as loss_module
+import src.models as model_module
 from src.data.preprocess import reindex_column, train_test_split
 from src.utils.utils import set_seed
+from src.utils.arg_parser import parse_args, parse_yaml
+import src.data.dataset as dataset_module
+from src.train.metric import recall_at_k_from_recommendations
 
 
 def main(args):
     # seed 설정
-    seed = 42
+    seed = args.seed
     set_seed(seed)
 
-    #################### LOAD DATA ####################
-    data_path = "../../data/train/"  # 알잘딱 수정
+    ######################################## LOAD DATA ########################################
+
+    data_path = args.dataset.data_path
     ratings = pd.read_csv(data_path + "train_ratings.csv")
 
-    #################### PREPROCESS ####################
+    ######################################## PREPROCESS ########################################
+
     ratings, usr2idx_dict = reindex_column(ratings, "user")
     ratings, item2idx_dict = reindex_column(ratings, "item")
 
@@ -41,29 +46,127 @@ def main(args):
         (feedback, (rows, cols)), dtype="float64", shape=(num_users, num_items)
     )
 
+    # data_path = args.dataset.data_path
+    # data = getattr(dataset_module, args.dataset.data_type)(data_path)
+
     # train/valid 분할
-    train_matrix, val_matrix = train_test_split(interaction_matrix)
+    num_random_items = args.metrics.num_random_items  # random sampling 개수, 기본값 2개
+    sequence = args.metrics.sequence  # sequnce sampling 여부, 기본값 True
 
-    #################### MODEL ####################
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    train_matrix, val_matrix = train_test_split(
+        interaction_matrix, num_random_items, sequence
+    )
 
-    top_k = 10
+    ######################################## LOGGING ########################################
+
+    ######################################## MODEL ########################################
+
+    if args.device == "cuda":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = args.device
+    print("device =", device)
+
     if args.model == "EASE":
-        # model = EASE(train_matrix, device).to(device)
-        # Test on the train + validation set
-        adj_mat = convert_sp_mat_to_sp_tensor(interaction_matrix).to_dense()
-        train_model = EASE(adj_mat, device)
-        rating = train_model(1000).cpu().numpy()
+        # model
+        model_args = getattr(args, args.model)
+        model = getattr(model_module, args.model)(**model_args)
+
+        # no train, predict directly
+        rating = model(train_matrix).cpu().numpy()  # np.ndarray (user x item)
+
         # Mask already interacted items
-        masked_reconstructed = rating * (interaction_matrix.toarray() == 0)
+        masked_reconstructed = rating * (
+            train_matrix.toarray() == 0
+        )  # np.ndarray (user x item)
+
         # Get top-k recommendations for each user
         recommendations = []
+        top_k = 10
         for user_id, scores in enumerate(masked_reconstructed):
             top_items = np.argsort(scores)[-top_k:][
                 ::-1
             ]  # Get top-k items sorted by score
             for item_id in top_items:
                 recommendations.append([user_id, item_id])
+
+        for k in args.metrics.top_k:
+            recall = recall_at_k_from_recommendations(recommendations, val_matrix, k)
+            print(f"Recall@{k}: {recall:.4f}")
+
+    if args.model == "MultiVAE":
+        # Initialize model and loss function
+        model_args = getattr(args, args.model)
+
+        input_dim = train_matrix.shape[1]  # num_user
+        model_args["p_dims"].append(
+            input_dim
+        )  # p_dims: [200, 600, input_dim] 같은 형식
+
+        model = getattr(model_module, args.model)(**model_args)
+        loss_fn = getattr(loss_module, args.loss)
+
+        # Optimizer
+        optim_args = (
+            args.optimizer.args
+        )  # ex) {'lr': 1e-3, 'weight_decay': 1e-4, 'armsgrad': False}
+        # ex) optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4, armsprad=False)
+        optimizer = getattr(optim, args.optimizer.type)(
+            model.parameters(), **optim_args
+        )
+
+    ######################################## TRAIN ########################################
+
+    top_k = args.metrics.top_k  # ex) [10] or [5, 10]
+    epochs = args.train.epochs
+
+    # predict가 False 이면 학습/검증 단계까지만 진행
+    if not args.predict:
+        # EASE 모델은 closed form calculation 이므로 예외처리
+        if not args.model == "EASE":
+            for epoch in range(1, epochs + 1):
+                print(f"Epoch {epoch}/{epochs}")
+                train_loss = train(
+                    model, loss_fn, optimizer, train_matrix, device, args
+                )
+                print(f"Training Loss: {train_loss:.4f}")
+
+                val_loss, metrics = evaluate_MultiVAE(
+                    model, train_matrix, val_matrix, args.metrics.top_k, loss_fn, args
+                )
+                print(f"Validation Loss: {val_loss:.4f}")
+                for k in top_k:
+                    print(
+                        f"Recall@{k}: {metrics[f'Recall@{k}']:.4f}, NDCG@{k}: {metrics[f'NDCG@{k}']:.4f}"
+                    )
+        # EASE 모델 계산
+        # else:
+        #     # no train, predict directly
+        #     model.to(device)
+        #     rating = model(train_matrix).cpu().numpy()
+
+    ######################################## INFERENCE ########################################
+
+    if args.predict:
+        if args.model == "EASE":
+            # no train, predict directly
+            rating = model(interaction_matrix).cpu().numpy()
+
+        ######################################## SAVE PREDICT ########################################
+
+        # Mask already interacted items
+        masked_reconstructed = rating * (interaction_matrix.toarray() == 0)
+
+        # Get top-k recommendations for each user
+        recommendations = []
+        top_k = 10
+        for user_id, scores in enumerate(masked_reconstructed):
+            top_items = np.argsort(scores)[-top_k:][
+                ::-1
+            ]  # Get top-k items sorted by score
+            for item_id in top_items:
+                recommendations.append([user_id, item_id])
+
         # Map back to original user and item IDs
         reverse_user_mapping = {v: k for k, v in usr2idx_dict.items()}
         reverse_item_mapping = {v: k for k, v in item2idx_dict.items()}
@@ -76,87 +179,15 @@ def main(args):
         )
         recommendations_df.to_csv("submission.csv", index=False)
 
-    elif args.model == "MultiVAE":
-        N = train_matrix.shape[0]
-
-        # Hyperparameters
-        learning_rate = 1e-3
-
-        # Initialize model, optimizer, and loss function
-        input_dim = train_matrix.shape[1]
-        p_dims = [200, 600, input_dim]
-        model = MultiVAE(p_dims).to(device)
-        optimizer = torch.optim.Adam(
-            model.parameters(), lr=learning_rate, weight_decay=args.wd
-        )
-
-    #################### TRAIN ####################
-
-    for epoch in range(1, args.epochs + 1):
-        print(f"Epoch {epoch}/{args.epochs}")
-        train_loss = train(
-            model, loss_function_vae, optimizer, train_matrix, device, args
-        )
-        print(f"Training Loss: {train_loss:.4f}")
-
-        val_loss, metrics = evaluate_MultiVAE(
-            model, train_matrix, val_matrix, loss_function_vae, device, top_k=[10]
-        )
-        print(f"Validation Loss: {val_loss:.4f}")
-        for k in [10]:
-            print(
-                f"Recall@{k}: {metrics[f'Recall@{k}']:.4f}, NDCG@{k}: {metrics[f'NDCG@{k}']:.4f}"
-            )
-
-    #################### INFERENCE ####################
-
-    #################### SAVE PREDICT ####################
-
-
-def convert_sp_mat_to_sp_tensor(X):
-    coo = X.tocoo().astype(np.float32)
-    row = torch.Tensor(coo.row).long()
-    col = torch.Tensor(coo.col).long()
-    index = torch.stack([row, col])
-    data = torch.FloatTensor(coo.data)
-    return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
-
 
 if __name__ == "__main__":
-    #################### CONFIG ####################
-    # arg parsing
-    parser = argparse.ArgumentParser(
-        description="PyTorch Variational Autoencoders for Collaborative Filtering"
-    )
-    arg = parser.add_argument
+    ######################################## CONFIG ########################################
+    # cli args parsing
+    args = parse_args()
+    # config yaml pasing and overriding with cli args
+    config_yaml = parse_yaml(args)
 
-    arg("--lr", type=float, default=1e-4, help="initial learning rate")
-    arg("--model", type=str, default="EASE", help="model name")
-    arg("--wd", type=float, default=0.00, help="weight decay coefficient")
-    arg("--batch_size", type=int, default=500, help="batch size")
-    arg("--epochs", type=int, default=1, help="upper epoch limit")
-    arg(
-        "--total_anneal_steps",
-        type=int,
-        default=200000,
-        help="the total number of gradient updates for annealing",
-    )
-    arg("--anneal_cap", type=float, default=0.2, help="largest annealing parameter")
-    arg("--cuda", action="store_true", help="use CUDA")
-    arg("--log_interval", type=int, default=100, metavar="N", help="report interval")
-    arg("--save", type=str, default="model.pt", help="path to save the final model")
+    # Configuration 콘솔에 출력
+    print(OmegaConf.to_yaml(config_yaml))
 
-    args = parser.parse_args()
-
-    # config_args = OmegaConf.create(vars(args))
-    # config_yaml = OmegaConf.load(args.config) if args.config else OmegaConf.create()
-
-    # # args에 있는 값이 config_yaml에 있는 값보다 우선함. (단, None이 아닌 값일 경우)
-    # for key in config_args.keys():
-    #     if config_args[key] is not None:
-    #         config_yaml[key] = config_args[key]
-
-    # # Configuration 콘솔에 출력
-    # print(OmegaConf.to_yaml(config_yaml))
-
-    main(args)
+    main(config_yaml)

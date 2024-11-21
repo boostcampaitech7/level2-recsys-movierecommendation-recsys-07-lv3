@@ -1,10 +1,14 @@
 import numpy as np
 import pandas as pd
+import torch
 from scipy.sparse import csr_matrix
+from typing import Tuple, Dict
 
 
 # reindexing function
-def reindex_column(data, column_name):
+def reindex_column(
+    data: pd.DataFrame, column_name: str
+) -> Tuple[pd.DataFrame, Dict[int, int]]:
     """
     Reindex a column in the dataframe to ensure continuous indices starting from 0.
 
@@ -28,8 +32,33 @@ def reindex_column(data, column_name):
     return data, mapping_dict
 
 
+def sparse2torch_sparse(data: csr_matrix) -> torch.sparse.FloatTensor:
+    """
+    Convert scipy sparse matrix to torch sparse tensor
+    This is much faster than naive use of torch.FloatTensor(data.toarray())
+    """
+    row = data.shape[0]
+    col = data.shape[1]
+    coo_data = data.tocoo()
+    indices = torch.LongTensor([coo_data.row, coo_data.col])
+    values = torch.FloatTensor(coo_data.data)
+
+    return torch.sparse.FloatTensor(indices, values, [row, col])
+
+
+def convert_sp_mat_to_sp_tensor(X):
+    coo = X.tocoo().astype(np.float32)
+    row = torch.Tensor(coo.row).long()
+    col = torch.Tensor(coo.col).long()
+    index = torch.stack([row, col])
+    data = torch.FloatTensor(coo.data)
+    return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
+
+
 # train/val split function
-def train_test_split(interaction_matrix: csr_matrix) -> list[csr_matrix, csr_matrix]:
+def train_test_split(
+    interaction_matrix: csr_matrix, num_random_items: int = 2, sequence: bool = True
+) -> Tuple[csr_matrix, csr_matrix]:
     """
     Split a CSR interaction matrix into training and validation sets with specific rules:
     - Last interaction is always included in the validation set.
@@ -54,11 +83,11 @@ def train_test_split(interaction_matrix: csr_matrix) -> list[csr_matrix, csr_mat
         if num_items == 0:
             continue  # Skip users with no interactions
 
-        # Last interaction is always included in the validation set
-        val_items = [item_indices[-1]]
+        # Last interaction added into the validation set
+        if sequence:
+            val_items = [item_indices[-1]]
 
         # Randomly sample additional two items from the remaining interactions
-        num_random_items = 2
         random_items = np.random.choice(
             item_indices[:-1], size=num_random_items, replace=False
         )

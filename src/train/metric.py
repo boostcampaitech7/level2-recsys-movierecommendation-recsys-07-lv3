@@ -1,5 +1,66 @@
 import numpy as np
 import bottleneck as bn
+from collections import defaultdict
+
+
+def recall_at_k(ground_truth, predictions, k):
+    """
+    Compute Recall@K for each user.
+
+    Args:
+    - ground_truth: scipy.sparse.csr_matrix, the test set
+    - predictions: numpy.ndarray, predicted scores for each user-item pair
+    - k: int, the number of top items to consider
+
+    Returns:
+    - float, average Recall@K across all users
+    """
+    num_users = ground_truth.shape[0]
+
+    # For each user, get the top-k item predictions
+    top_k_items = np.argsort(-predictions, axis=1)[:, :k]
+
+    recalls = []
+    for user in range(num_users):
+        user_ground_truth = ground_truth[user].indices
+        user_top_k = top_k_items[user]
+
+        # Compute recall for this user
+        recall = len(set(user_top_k) & set(user_ground_truth)) / len(user_ground_truth)
+        recalls.append(recall)
+
+    return np.mean(recalls)
+
+
+def recall_at_k_from_recommendations(recommendations, ground_truth, k):
+    """
+    Compute Recall@K using the recommendations list.
+
+    Args:
+    - recommendations: list of [user_id, item_id] pairs
+    - ground_truth: scipy.sparse.csr_matrix, the test set
+    - k: int, the number of top items to consider
+
+    Returns:
+    - float, average Recall@K across all users
+    """
+    user_recommendations = defaultdict(list)
+    for user_id, item_id in recommendations:
+        if len(user_recommendations[user_id]) < k:
+            user_recommendations[user_id].append(item_id)
+
+    recalls = []
+    num_users = ground_truth.shape[0]
+
+    for user in range(num_users):
+        user_ground_truth = set(ground_truth[user].indices)
+        user_top_k = set(user_recommendations.get(user, []))
+
+        if len(user_ground_truth) > 0:
+            recall = len(user_top_k & user_ground_truth) / len(user_ground_truth)
+            recalls.append(recall)
+
+    return np.mean(recalls)
 
 
 def Recall_at_k_batch(X_pred, heldout_batch, k=10):

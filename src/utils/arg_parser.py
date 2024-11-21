@@ -1,6 +1,7 @@
 import argparse
 import ast
 from omegaconf import OmegaConf
+import torch.optim
 
 
 def parse_args():
@@ -21,16 +22,14 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(description="parser")
     arg = parser.add_argument
-    # str2dict = lambda x: {k: int(v) for k, v in (i.split(":") for i in x.split(","))}
 
-    # add basic arguments (no default value)
+    # add basic arguments
     arg(
         "--config",
         "-c",
         "--c",
         type=str,
         help="Configuration 파일을 설정합니다.",
-        required=True,
         default="configs/config.yaml",
     )
     arg(
@@ -38,7 +37,7 @@ def parse_args():
         "-p",
         "--p",
         "--pred",
-        type=ast.literal_eval,
+        action="store_true",
         help="학습을 생략할지 여부를 설정할 수 있습니다.",
     )
     arg(
@@ -53,14 +52,7 @@ def parse_args():
         "-m",
         "--m",
         type=str,
-        choices=[
-            "FM",
-            "FFM",
-            "DeepFM",
-            "NCF",
-            "WDN",
-            "DCN",
-        ],
+        choices=["MultiVAE", "EASE"],
         help="학습 및 예측할 모델을 선택할 수 있습니다.",
     )
     arg(
@@ -82,7 +74,7 @@ def parse_args():
         "--wandb",
         "--w",
         "-w",
-        type=ast.literal_eval,
+        action="store_true",
         help="wandb를 사용할지 여부를 설정할 수 있습니다.",
     )
     arg(
@@ -113,7 +105,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def parse_yaml(config_args, config_yaml, optim, scheduler):
+def parse_yaml(args):
+
+    config_args = OmegaConf.create(vars(args))
+    config_yaml = OmegaConf.load(args.config) if args.config else OmegaConf.create()
+
     # args에 있는 값이 config_yaml에 있는 값보다 우선함. (단, None이 아닌 값일 경우)
     for key in config_args.keys():
         if config_args[key] is not None:
@@ -127,27 +123,31 @@ def parse_yaml(config_args, config_yaml, optim, scheduler):
             del config_yaml.wandb_project, config_yaml.run_name
 
         config_yaml.model_args = OmegaConf.create(
-            {config_yaml.model: config_yaml.model_args[config_yaml.model]}
+            {config_yaml.model: getattr(config_yaml, config_yaml.model)}
         )
 
         config_yaml.optimizer.args = {
             k: v
             for k, v in config_yaml.optimizer.args.items()
             if k
-            in getattr(optim, config_yaml.optimizer.type).__init__.__code__.co_varnames
+            in getattr(
+                torch.optim, config_yaml.optimizer.type
+            ).__init__.__code__.co_varnames
         }
 
-        if config_yaml.lr_scheduler.use == False:
-            del config_yaml.lr_scheduler.type, config_yaml.lr_scheduler.args
-        else:
-            config_yaml.lr_scheduler.args = {
-                k: v
-                for k, v in config_yaml.lr_scheduler.args.items()
-                if k
-                in getattr(
-                    scheduler, config_yaml.lr_scheduler.type
-                ).__init__.__code__.co_varnames
-            }
+        # if config_yaml.lr_scheduler.use == False:
+        #     del config_yaml.lr_scheduler.type, config_yaml.lr_scheduler.args
+        # else:
+        #     config_yaml.lr_scheduler.args = {
+        #         k: v
+        #         for k, v in config_yaml.lr_scheduler.args.items()
+        #         if k
+        #         in getattr(
+        #             scheduler, config_yaml.lr_scheduler.type
+        #         ).__init__.__code__.co_varnames
+        #     }
 
         if config_yaml.train.resume == False:
             del config_yaml.train.resume_path
+
+    return config_yaml
