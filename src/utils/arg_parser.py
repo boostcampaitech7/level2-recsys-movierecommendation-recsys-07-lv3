@@ -37,7 +37,8 @@ def parse_args():
         "-p",
         "--p",
         "--pred",
-        action="store_true",
+        action="store_const",
+        const=True,
         help="학습을 생략할지 여부를 설정할 수 있습니다.",
     )
     arg(
@@ -74,7 +75,8 @@ def parse_args():
         "--wandb",
         "--w",
         "-w",
-        action="store_true",
+        action="store_const",
+        const="True",
         help="wandb를 사용할지 여부를 설정할 수 있습니다.",
     )
     arg(

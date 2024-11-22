@@ -70,29 +70,7 @@ def main(args):
     if args.model == "EASE":
         # model
         model_args = getattr(args, args.model)
-        model = getattr(model_module, args.model)(**model_args)
-
-        # no train, predict directly
-        rating = model(train_matrix).cpu().numpy()  # np.ndarray (user x item)
-
-        # Mask already interacted items
-        masked_reconstructed = rating * (
-            train_matrix.toarray() == 0
-        )  # np.ndarray (user x item)
-
-        # Get top-k recommendations for each user
-        recommendations = []
-        top_k = 10
-        for user_id, scores in enumerate(masked_reconstructed):
-            top_items = np.argsort(scores)[-top_k:][
-                ::-1
-            ]  # Get top-k items sorted by score
-            for item_id in top_items:
-                recommendations.append([user_id, item_id])
-
-        for k in args.metrics.top_k:
-            recall = recall_at_k_from_recommendations(recommendations, val_matrix, k)
-            print(f"Recall@{k}: {recall:.4f}")
+        model = getattr(model_module, args.model)(**model_args).to(device)
 
     if args.model == "MultiVAE":
         # Initialize model and loss function
@@ -122,8 +100,33 @@ def main(args):
 
     # predict가 False 이면 학습/검증 단계까지만 진행
     if not args.predict:
-        # EASE 모델은 closed form calculation 이므로 예외처리
-        if not args.model == "EASE":
+        # EASE 모델
+        if args.model == "EASE":
+            # no train, predict directly
+            rating = model(train_matrix).cpu().numpy()  # np.ndarray (user x item)
+
+            # Mask already interacted items
+            masked_reconstructed = rating * (
+                train_matrix.toarray() == 0
+            )  # np.ndarray (user x item)
+
+            # Get top-k recommendations for each user
+            recommendations = []
+            top_k = 10
+            for user_id, scores in enumerate(masked_reconstructed):
+                top_items = np.argsort(scores)[-top_k:][
+                    ::-1
+                ]  # Get top-k items sorted by score
+                for item_id in top_items:
+                    recommendations.append([user_id, item_id])
+
+            for k in args.metrics.top_k:
+                recall = recall_at_k_from_recommendations(
+                    recommendations, val_matrix, k
+                )
+                print(f"Recall@{k}: {recall:.4f}")
+        # 다른 모델
+        else:
             for epoch in range(1, epochs + 1):
                 print(f"Epoch {epoch}/{epochs}")
                 train_loss = train(
@@ -139,12 +142,6 @@ def main(args):
                     print(
                         f"Recall@{k}: {metrics[f'Recall@{k}']:.4f}, NDCG@{k}: {metrics[f'NDCG@{k}']:.4f}"
                     )
-        # EASE 모델 계산
-        # else:
-        #     # no train, predict directly
-        #     model.to(device)
-        #     rating = model(train_matrix).cpu().numpy()
-
     ######################################## INFERENCE ########################################
 
     if args.predict:
@@ -152,32 +149,30 @@ def main(args):
             # no train, predict directly
             rating = model(interaction_matrix).cpu().numpy()
 
-        ######################################## SAVE PREDICT ########################################
+            # Mask already interacted items
+            masked_reconstructed = rating * (interaction_matrix.toarray() == 0)
 
-        # Mask already interacted items
-        masked_reconstructed = rating * (interaction_matrix.toarray() == 0)
+            # Get top-k recommendations for each user
+            recommendations = []
+            top_k = 10
+            for user_id, scores in enumerate(masked_reconstructed):
+                top_items = np.argsort(scores)[-top_k:][
+                    ::-1
+                ]  # Get top-k items sorted by score
+                for item_id in top_items:
+                    recommendations.append([user_id, item_id])
 
-        # Get top-k recommendations for each user
-        recommendations = []
-        top_k = 10
-        for user_id, scores in enumerate(masked_reconstructed):
-            top_items = np.argsort(scores)[-top_k:][
-                ::-1
-            ]  # Get top-k items sorted by score
-            for item_id in top_items:
-                recommendations.append([user_id, item_id])
-
-        # Map back to original user and item IDs
-        reverse_user_mapping = {v: k for k, v in usr2idx_dict.items()}
-        reverse_item_mapping = {v: k for k, v in item2idx_dict.items()}
-        recommendations_df = pd.DataFrame(recommendations, columns=["user", "item"])
-        recommendations_df["user"] = recommendations_df["user"].map(
-            reverse_user_mapping
-        )
-        recommendations_df["item"] = recommendations_df["item"].map(
-            reverse_item_mapping
-        )
-        recommendations_df.to_csv("submission.csv", index=False)
+            # Map back to original user and item IDs
+            reverse_user_mapping = {v: k for k, v in usr2idx_dict.items()}
+            reverse_item_mapping = {v: k for k, v in item2idx_dict.items()}
+            recommendations_df = pd.DataFrame(recommendations, columns=["user", "item"])
+            recommendations_df["user"] = recommendations_df["user"].map(
+                reverse_user_mapping
+            )
+            recommendations_df["item"] = recommendations_df["item"].map(
+                reverse_item_mapping
+            )
+            recommendations_df.to_csv("submission.csv", index=False)
 
 
 if __name__ == "__main__":
