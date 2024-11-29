@@ -12,3 +12,5 @@ __pycache__/
 saved/
 # Jupyter Notebook 체크포인트
 .ipynb_checkpoints/
+# 아웃풋 출력 방지
+output/
