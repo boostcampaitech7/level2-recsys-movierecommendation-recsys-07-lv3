@@ -1,14 +1,2 @@
-# 데이터 올리기 방지
-data/
-# 맥 자동 업로드 방지
-.DS_Store
-# 가상환경
-.venv/
-# 파이썬 캐쉬
+/data/*
 __pycache__/
-*.py[cod]
-*$py.class
-# 저장 파일
-saved/
-# Jupyter Notebook 체크포인트
-.ipynb_checkpoints/

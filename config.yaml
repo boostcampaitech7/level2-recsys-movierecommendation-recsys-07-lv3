@@ -1,0 +1,38 @@
+dataset_config:
+  type: aistages
+  path: data/aistages
+  split: aistages
+
+model_config:
+  EASE:
+    lambda: 1000
+  
+  LightGCN:
+    embedding_dim: 64
+    layer_num: 1
+    learning_rate: 0.002
+    epoch_num: 100
+    batch_size: 1024
+    sample_num_per_user: 1
+    validate_interval: 1
+  
+  MultiVAE:
+    beta: 0.05
+    encoder_dim: [1000, 400]
+    noise: 0.1
+    learning_rate: 0.0005
+    epoch_num: 100
+    batch_size: 512
+    validate_interval: 5
+
+  RecVAE:
+    beta: 0.005
+    hidden_dim: 600
+    latent_dim: 200
+    learning_rate: 0.001
+    epoch_num: 100
+    batch_size: 512
+    validate_interval: 10
+  
+  SVDAE:
+    lambda: 0.06
