@@ -5,12 +5,11 @@ import torch
 from torch.utils.data import DataLoader, SequentialSampler
 
 from datasets import SASRecDataset
-from models import S3RecModel
+from models import SASRecModel
 from trainers import FinetuneTrainer
 from utils import (
     check_path,
     generate_submission_file,
-    get_item2attribute_json,
     get_user_seqs,
     set_seed,
 )
@@ -80,20 +79,20 @@ def main():
     args.data_file = args.data_dir + "train_ratings.csv"
     item2attribute_file = args.data_dir + args.data_name + "_item2attributes.json"
 
-    user_seq, max_item, _, _, submission_rating_matrix = get_user_seqs(args.data_file)
+    user_seq, max_item, _, submission_rating_matrix = get_user_seqs(args.data_file)
 
-    item2attribute, attribute_size = get_item2attribute_json(item2attribute_file)
+
 
     args.item_size = max_item + 2
     args.mask_id = max_item + 1
-    args.attribute_size = attribute_size + 1
+ 
 
     # save model args
     args_str = f"{args.model_name}-{args.data_name}"
 
     print(str(args))
 
-    args.item2attribute = item2attribute
+
 
     args.train_matrix = submission_rating_matrix
 
@@ -106,7 +105,7 @@ def main():
         submission_dataset, sampler=submission_sampler, batch_size=args.batch_size
     )
 
-    model = S3RecModel(args=args)
+    model = SASRecModel(args=args)
 
     trainer = FinetuneTrainer(model, None, None, None, submission_dataloader, args)
 
