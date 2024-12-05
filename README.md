@@ -86,23 +86,16 @@ $ pip install -r requirement.txt
 ```
 
 ## 기능 및 예시
-- Static model
+- base model
 
-EASE, RecVAE 등 static model을 실행하는 script입니다.
-
-```shell
-$ python main.py -m {model명}
-```
-
-제출을 위한 테스트를 진행하려면 --test 인자를 추가해주세요.
+EASE, RecVAE 등 base model을 실행하는 코드입니다.
 
 ```shell
-$ python main.py -m {model명} --test
+$ python main.py  -m {model명}
 ```
 
-<br/>
 
-- Sequential model (SASRec)
+- SASRec
 
 Sequential 데이터를 예측하는 SASRec을 학습시키는 코드입니다.
 
