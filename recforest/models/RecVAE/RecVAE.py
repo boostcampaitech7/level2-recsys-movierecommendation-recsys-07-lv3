@@ -106,18 +106,16 @@ class RecVAE(Model):
         else:
             return mu
 
-    def forward(self, user_ratings, beta=None, gamma=0.005, dropout_rate=0, calculate_loss=True):
+    def forward(self, user_ratings, dropout_rate=0, calculate_loss=True):
+        user_ratings += torch.rand_like(user_ratings) * self.config['noise']
 
         mu, logvar = self.encoder(user_ratings, dropout_rate=dropout_rate)    
         z = self.reparameterize(mu, logvar)
         x_pred = self.decoder(z)
         
         if calculate_loss:
-            if gamma:
-                norm = user_ratings.sum(dim=-1)
-                kl_weight = gamma * norm
-            elif beta:
-                kl_weight = beta
+            norm = user_ratings.sum(dim=-1)
+            kl_weight = self.config['gamma'] * norm
 
             mll = (F.log_softmax(x_pred, dim=-1) * user_ratings).sum(dim=-1).mean()
             kld = (log_norm_pdf(z, mu, logvar) - self.prior(user_ratings, z)).sum(dim=-1).mul(kl_weight).mean()
