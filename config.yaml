@@ -26,11 +26,12 @@ model_config:
     validate_interval: 5
 
   RecVAE:
-    beta: 0.005
+    gamma: 0.00001
+    noise: 0.1
     hidden_dim: 600
     latent_dim: 200
     learning_rate: 0.001
-    epoch_num: 100
+    epoch_num: 50
     batch_size: 512
     validate_interval: 10
   
