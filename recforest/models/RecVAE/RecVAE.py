@@ -1,3 +1,7 @@
+'''
+https://github.com/ilya-shenbin/RecVAE
+로 부터 가져온 코드입니다.
+'''
 import numpy as np
 from copy import deepcopy
 
