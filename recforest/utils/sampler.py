@@ -7,13 +7,33 @@ from scipy.sparse import csr_matrix
 from ..data import Dataset
 
 class NegativeSampler:
+    """Negative Sampling을 수행하는 클래스입니다.
+    """
 
     def __init__(self, dataset: Dataset, sample_num_per_user: int, negative_sample_num: int) -> None:
+        """Sampler의 설정을 받고 초기화합니다.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            샘플을 추출할 데이터셋입니다.
+        sample_num_per_user : int
+            한 사용자 당 추출할 샘플의 수입니다.
+        negative_sample_num : int
+            한 positive 샘플 당 추출할 negative 샘플의 수입니다.
+        """
         self.dataset = dataset
         self.sample_num_per_user = sample_num_per_user
         self.negative_sample_num = negative_sample_num
 
     def get_samples(self) -> torch.Tensor:
+        """Negative Sampling을 수행하여 샘플을 반환합니다.
+
+        Returns
+        -------
+        torch.Tensor
+            Negative Sampling된 샘플입니다.
+        """
         pairwise_samples = []
 
         for user in tqdm(range(self.dataset.user_cnt)):
