@@ -31,7 +31,7 @@ model_config:
     hidden_dim: 600
     latent_dim: 200
     learning_rate: 0.001
-    epoch_num: 50
+    epoch_num: 100
     batch_size: 512
     validate_interval: 10
   
